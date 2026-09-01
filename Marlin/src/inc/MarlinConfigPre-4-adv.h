@@ -34,3 +34,22 @@
     #include "../../Configuration_adv.h"
   #endif
 #endif
+
+// Ender-3 V3 SE F401 / TMC2208 reliability defaults for FT Motion.
+// See navaismo/Marlin_bugfix_2.1_E3V3SE#23.
+#if MB(CREALITY_F401RE) && ENABLED(FT_MOTION)
+  #undef LIN_ADVANCE
+  #undef STEALTHCHOP_E
+  #if AXIS_DRIVER_TYPE_X(TMC2208) || AXIS_DRIVER_TYPE_X(TMC2208_STANDALONE)
+    #define FTM_DIR_CHANGE_HOLD_X
+  #endif
+  #if AXIS_DRIVER_TYPE_Y(TMC2208) || AXIS_DRIVER_TYPE_Y(TMC2208_STANDALONE)
+    #define FTM_DIR_CHANGE_HOLD_Y
+  #endif
+  #if AXIS_DRIVER_TYPE_Z(TMC2208) || AXIS_DRIVER_TYPE_Z(TMC2208_STANDALONE)
+    #define FTM_DIR_CHANGE_HOLD_Z
+  #endif
+  #if HAS_E_DRIVER(TMC2208) || HAS_E_DRIVER(TMC2208_STANDALONE)
+    #define FTM_DIR_CHANGE_HOLD_E
+  #endif
+#endif
