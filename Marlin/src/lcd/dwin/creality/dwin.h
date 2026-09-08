@@ -811,6 +811,7 @@ void Popup_Window_Leveling();
 
 void Goto_PrintProcess();
 void Goto_MainMenu();
+void Goto_FilePreview();
 
 // Variable control
 void HMI_Move_X();

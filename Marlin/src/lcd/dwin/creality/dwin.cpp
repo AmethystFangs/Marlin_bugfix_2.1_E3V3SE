@@ -3221,14 +3221,6 @@ void Popup_window_PauseOrStop()
     {
       DWIN_Draw_String(false, false, DWIN_FONT_HEAD, Color_White, Color_Bg_Window, 14, 45, F("Reset Settings?"));
     }
-  #if ENABLED(ONE_CLICK_PRINT)  
-    else if (select_print.now == 30)
-    {
-      char * const filename = card.longest_filename();
-      DWIN_Draw_String(false, false, DWIN_FONT_HEAD, Color_White, Color_Bg_Window, 14, 55, F("Do you want to Print File:"));
-      DWIN_Draw_String(false, false, DWIN_FONT_HEAD, Color_White, Color_Bg_Window, 14, 85, filename);
-    }
-  #endif
 
     DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, 26, 194);
     DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, 132, 194);
@@ -6189,9 +6181,61 @@ static void Image_Preview_Information_Show(uint8_t ret)
     }
     Clear_Title_Bar();
     Draw_Title(str);
-       
+
   }
-#endif  
+#endif
+
+// Open the file preview dialog for the file currently selected in the card
+// reader. Shared by manual file selection and One Click Print.
+void Goto_FilePreview()
+{
+  strncpy(my_short_fn, card.filename, sizeof(my_short_fn) - 1);
+  my_short_fn[sizeof(my_short_fn) - 1] = '\0';
+
+  #if ENABLED(DWIN_RENDER_THUMBNAIL)
+
+    Goto_ThumbPreview();
+
+  #else
+
+    checkkey = Show_gcode_pic;
+    select_show_pic.reset();
+    HMI_flag.select_flag = true;
+    Clear_Main_Window();
+    Draw_Mid_Status_Area(true); // Rock 20230529
+    if (HMI_flag.language < Language_Max)
+    {
+      #if ENABLED(DWIN_CREALITY_480_LCD)
+        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, 26, 315);
+        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, 146, 315);
+      #elif ENABLED(DWIN_CREALITY_320_LCD)
+        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, BUTTON_X, BUTTON_Y);
+        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, BUTTON_X + BUTTON_OFFSET_X, BUTTON_Y);
+      #endif
+    }
+    #if ENABLED(USER_LEVEL_CHECK)
+      select_show_pic.now = 0; // Default selection
+    #else
+      select_show_pic.now = 1; // Default selection
+    #endif
+
+    Draw_Show_G_Select_Highlight(true);
+
+    char *const name = card.longest_filename();
+    char str[MENU_CHAR_LIMIT + 1];
+    // Cancel the suffix. For example: filename.gcode and remove .gocde.
+    make_name_without_ext(str, name);
+    Draw_Title(str);
+    uint8_t ret = METADATA_PARSE_ERROR;
+    // Ender-3v3 SE temporarily does not support the image preview function to prevent freezing and displays the default preview image.
+    // ret = gcodePicDataSendToDwin(card.filename, VP_OVERLAY_PIC_PREVIEW_1, PRIWIEW_PIC_FORMAT_NEED, PRIWIEW_PIC_RESOLITION_NEED);
+    ret = read_gcode_model_information(card.filename);
+    // if(ret == PIC_MISS_ERR)
+    DC_Show_defaut_image();              // Since this project does not have image preview data, the default small robot image is displayed.
+    Image_Preview_Information_Show(ret); // Picture preview details display
+
+  #endif
+}
 
 // Select (and Print) File
 void HMI_SelectFile()
@@ -6324,51 +6368,7 @@ void HMI_SelectFile()
       {
       
       
-        strncpy(my_short_fn, card.filename, sizeof(my_short_fn) - 1);
-        my_short_fn[sizeof(my_short_fn) - 1] = '\0';
-
-        #if ENABLED(DWIN_RENDER_THUMBNAIL)
-          Goto_ThumbPreview();
-
-        #else
-
-          checkkey = Show_gcode_pic;
-          select_show_pic.reset();
-          HMI_flag.select_flag = true;
-          Clear_Main_Window();
-          Draw_Mid_Status_Area(true); // Rock 20230529
-          if (HMI_flag.language < Language_Max)
-          {
-            #if ENABLED(DWIN_CREALITY_480_LCD)
-                      DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, 26, 315);
-                      DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, 146, 315);
-            #elif ENABLED(DWIN_CREALITY_320_LCD)
-                      DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, BUTTON_X, BUTTON_Y);
-                      DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, BUTTON_X + BUTTON_OFFSET_X, BUTTON_Y);
-            #endif
-          }
-            #if ENABLED(USER_LEVEL_CHECK)
-                    select_show_pic.now = 0; // Default selection
-            #else
-                    select_show_pic.now = 1; // Default selection
-            #endif
-            
-            Draw_Show_G_Select_Highlight(true);
-      
-            char *const name = card.longest_filename();
-            char str[MENU_CHAR_LIMIT + 1];
-            // Cancel the suffix. For example: filename.gcode and remove .gocde.
-            make_name_without_ext(str, name);
-            Draw_Title(str);
-            uint8_t ret = METADATA_PARSE_ERROR;
-            // Ender-3v3 SE temporarily does not support the image preview function to prevent freezing and displays the default preview image.
-            // ret = gcodePicDataSendToDwin(card.filename, VP_OVERLAY_PIC_PREVIEW_1, PRIWIEW_PIC_FORMAT_NEED, PRIWIEW_PIC_RESOLITION_NEED);
-            ret = read_gcode_model_information(card.filename);
-            // if(ret == PIC_MISS_ERR)
-            DC_Show_defaut_image();              // Since this project does not have image preview data, the default small robot image is displayed.
-            Image_Preview_Information_Show(ret); // Picture preview details display
-    
-        #endif
+        Goto_FilePreview();
       }
     }
   }
@@ -6670,69 +6670,6 @@ void HMI_PauseOrStop()
       }
     }
 
-  #if ENABLED(ONE_CLICK_PRINT)
-    else if (select_print.now == 30){
-      if (HMI_flag.select_flag)
-      {
-        
-          strncpy(my_short_fn, card.filename, sizeof(my_short_fn) - 1);
-          my_short_fn[sizeof(my_short_fn) - 1] = '\0';
-          #if ENABLED(DWIN_RENDER_THUMBNAIL)
-           Goto_ThumbPreview();
-          #else
-
-            checkkey = Show_gcode_pic;
-            select_show_pic.reset();
-            HMI_flag.select_flag = true;
-            Clear_Main_Window();
-            Draw_Mid_Status_Area(true); // Rock 20230529
-            if (HMI_flag.language < Language_Max)
-            {
-              #if ENABLED(DWIN_CREALITY_480_LCD)
-                        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, 26, 315);
-                        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, 146, 315);
-              #elif ENABLED(DWIN_CREALITY_320_LCD)
-                        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Confirm, BUTTON_X, BUTTON_Y);
-                        DWIN_ICON_Not_Filter_Show(HMI_flag.language, LANGUAGE_Cancel, BUTTON_X + BUTTON_OFFSET_X, BUTTON_Y);
-              #endif
-            }
-              #if ENABLED(USER_LEVEL_CHECK)
-                      select_show_pic.now = 0; // Default selection
-              #else
-                      select_show_pic.now = 1; // Default selection
-              #endif
-              
-              Draw_Show_G_Select_Highlight(true);
-        
-              char *const name = card.longest_filename();
-              char str[MENU_CHAR_LIMIT + 1];
-              // Cancel the suffix. For example: filename.gcode and remove .gocde.
-              make_name_without_ext(str, name);
-              Draw_Title(str);
-              uint8_t ret = METADATA_PARSE_ERROR;
-              // Ender-3v3 SE temporarily does not support the image preview function to prevent freezing and displays the default preview image.
-              // ret = gcodePicDataSendToDwin(card.filename, VP_OVERLAY_PIC_PREVIEW_1, PRIWIEW_PIC_FORMAT_NEED, PRIWIEW_PIC_RESOLITION_NEED);
-              ret = read_gcode_model_information(card.filename);
-              // if(ret == PIC_MISS_ERR)
-              DC_Show_defaut_image();              // Since this project does not have image preview data, the default small robot image is displayed.
-              Image_Preview_Information_Show(ret); // Picture preview details display
-      
-          #endif
-      }
-      else
-      {
-        // cancel print
-        
-        my_short_fn[0] = '\0'; // clear my_short_fn to avoid caching issues
-        select_print.reset();  // Reset select_print to avoid issues
-        select_file.reset();  // Reset select_file to avoid issues
-        card.closefile();     // Close the file to avoid SD card issues
-        queue.enqueue_one_now(F("M1003"));  // Make sure SD card browsing doesn't break!
-        Goto_MainMenu();
-
-      }
-    }
-  #endif  
   }
   DWIN_UpdateLCD();
 }
@@ -11805,14 +11742,10 @@ void Show_G_Pic(void)
   }
   else if (encoder_diffState == ENCODER_DIFF_ENTER)
   {
-    // Get long file name
-    const bool is_subdir = !card.flag.workDirIsRoot;
-    const uint16_t filenum = select_file.now - 1 - is_subdir;
+    // The file to act on is the one Goto_FilePreview() stashed in my_short_fn.
+    // Don't re-derive it from select_file.now: One Click Print reaches this
+    // dialog without ever going through the file list, so that index is stale.
     index_show_pic = select_show_pic.now;
-    card.getfilename_sorted(SD_ORDER(filenum, card.get_num_items()));
-    // char *const name = card.longest_filename();
-    // short file name
-    // SERIAL_ECHOLN(card.filename);
     switch (index_show_pic)
     {
     case 2:
@@ -11828,7 +11761,7 @@ void Show_G_Pic(void)
         // Rock 20210819
         recovery.info.sd_printing_flag = true;
 
-        card.openAndPrintFile(card.filename);
+        card.openAndPrintFile(my_short_fn);
 
         #if ENABLED(DWIN_RENDER_THUMBNAIL)
           if(hasThumbnail){
@@ -12701,17 +12634,39 @@ void HMI_Auto_Bed_PID(void)
 }
 
 #if ENABLED(ONE_CLICK_PRINT)
+  /**
+   * Media was just inserted and card.selectNewestFile() picked a file.
+   * Open the file preview dialog for it directly -- the user confirms (or
+   * cancels) the print there, so no separate "Do you want to print?" prompt
+   * is needed.
+   *
+   * Media can be inserted at any moment, so only take over the screen when
+   * the UI is genuinely idle -- sitting on the main menu or the file list.
+   * Anything else (an active print, including one driven over USB by
+   * Octoprint, a wizard, bed leveling, a settings menu or the first-boot
+   * language picker) must be left alone: the preview dialog clears the whole
+   * screen and blocks for the duration of the thumbnail render.
+   *
+   * checkkey is still 0 (== MainMenu) on the very first mount at boot, so the
+   * boot-with-card-inserted case keeps working.
+   */
   void one_click_print() {
 
-      if(reset_flag){
-        // we came from a reset, dont start printing
-        SERIAL_ECHOLNPGM("One click print: reset detected, not starting a print.");  
-      }else {  
-        checkkey = Print_window;
-        select_print.now = 30;
-        HMI_flag.select_flag = true;
-        Popup_window_PauseOrStop();
-      }
+    // Came from a reset / first-boot language selection: don't start printing.
+    if (reset_flag) {
+      SERIAL_ECHOLNPGM("One click print: reset detected, not starting a print.");
+      card.cdroot();  // selectNewestFile() moved workDir; restore it for SD browsing
+      return;
+    }
+
+    const bool ui_idle = (checkkey == MainMenu || checkkey == SelectFile);
+    if (!ui_idle || marlin.printingIsActive() || marlin.printingIsPaused()) {
+      SERIAL_ECHOLNPGM("One click print: printer busy, skipping preview.");
+      card.cdroot();  // selectNewestFile() moved workDir; restore it for SD browsing
+      return;
+    }
+
+    Goto_FilePreview();
   }
 #endif
 
