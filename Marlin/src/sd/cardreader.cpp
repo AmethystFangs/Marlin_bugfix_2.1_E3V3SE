@@ -1038,8 +1038,16 @@ void CardReader::write_command(char * const buf) {
    * Recurse the entire directory to find the newest file.
    * This may take a very long time so watch out for watchdog reset.
    * It may be best to only look at root for reasonable boot and mount times.
+   *
+   * 'depth' is the number of subdirectory levels between 'root' and 'parent'
+   * (0 == parent is root). 'outParents' is a scratch array (sized
+   * MAX_DIR_DEPTH, owned by the caller) that mirrors CardReader::workDirParents;
+   * whenever a new best candidate is found, 'outDepth' is set to the depth of
+   * its parent so the caller can rebuild the working-directory chain down to
+   * that file without re-walking the card.
    */
-  void CardReader::diveToNewestFile(MediaFile parent, uint32_t &compareDateTime, MediaFile &outdir, char * const outname) {
+  void CardReader::diveToNewestFile(MediaFile parent, uint32_t &compareDateTime, MediaFile &outdir, char * const outname,
+                                     uint8_t depth, MediaFile * const outParents, uint8_t &outDepth) {
     // Iterate the given parent dir
     parent.rewind();
     for (dir_t p; parent.readDir(&p, longFilename) > 0;) {
@@ -1052,8 +1060,10 @@ void CardReader::write_command(char * const buf) {
 
         // Open the item in a new MediaFile
         MediaFile child; // child.close() in destructor
-        if (child.open(&parent, dirname, O_READ))
-          diveToNewestFile(child, compareDateTime, outdir, outname);
+        if (child.open(&parent, dirname, O_READ) && depth < MAX_DIR_DEPTH) {
+          outParents[depth] = child; // Record this level in case the newest file turns out to be under it
+          diveToNewestFile(child, compareDateTime, outdir, outname, depth + 1, outParents, outDepth);
+        }
       }
       else if (is_visible_entity(p)) {
         // Get the newer of the modified/created date and time
@@ -1064,6 +1074,7 @@ void CardReader::write_command(char * const buf) {
         if (newerDateTime > compareDateTime) {
           compareDateTime = newerDateTime;
           outdir = parent;
+          outDepth = depth;
           createFilename(outname, p);
         }
       }
@@ -1079,14 +1090,30 @@ void CardReader::write_command(char * const buf) {
     MediaFile foundDir;
     char foundName[FILENAME_LENGTH];
     foundName[0] = '\0';
+    MediaFile foundParents[MAX_DIR_DEPTH];
+    uint8_t foundDepth = 0;
 
-    diveToNewestFile(root, dateTimeStorage, foundDir, foundName);
+    diveToNewestFile(root, dateTimeStorage, foundDir, foundName, 0, foundParents, foundDepth);
 
     if (foundName[0]) {
       workDir = foundDir;
       workDir.rewind();
       selectByName(workDir, foundName);
       //workDir.close(); // Not needed?
+
+      // Sync the working-directory bookkeeping that a plain workDir assignment
+      // bypasses. Without this, workDirDepth/workDirIsRoot/nrItems go on
+      // describing whatever directory was current before the dive while
+      // workDir itself now points at the found file's real parent -- any
+      // later index-based lookup (the DWIN file browser's SD_ORDER math,
+      // card.get_num_items(), a plain '..') would misresolve against a
+      // directory it no longer matches.
+      workDirDepth = foundDepth;
+      for (uint8_t i = 0; i < foundDepth; ++i) workDirParents[i] = foundParents[i];
+      flag.workDirIsRoot = (foundDepth == 0);
+      nrItems = -1;
+      TERN_(SDCARD_SORT_ALPHA, presort());
+
       return true;
     }
     return false;
