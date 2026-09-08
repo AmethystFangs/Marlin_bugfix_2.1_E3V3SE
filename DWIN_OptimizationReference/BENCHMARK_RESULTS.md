@@ -1,113 +1,187 @@
-# TJC Display Thumbnail Rendering Benchmarks
+# DWIN Thumbnail Rendering Benchmark Results
 
-**Date:** 2026-09-04  
-**Hardware:** TJC3224T132_011N panel on Ender-3 V3 SE  
-**Serial:** 115200 baud, 3ms/frame throttle (safe minimum from Phase 1 testing)  
-**Test images:** 5 real G-code thumbnails (96×96 RGB565), decoded from Marlin's `E3V3SE_THUMB_RAW16` format  
+**Status:** Measured on real hardware, current as of this branch's committed firmware.
+**Hardware:** GD32F303RET6 (`BOARD_CREALITY_V3_GD303` / `STM32F103RET6_creality`), TJC panel
+via UART @ 115200, connected directly to `/dev/ttyUSB0`.
+**Throttle:** batch-all, `batch_size=10` frames, `batch_delay=16ms` -- the value committed in
+`Marlin/src/lcd/dwin/creality/dwin_lcd.cpp` (`THUMB_BATCH_SIZE`/`THUMB_BATCH_DELAY_MS`), applied
+identically to every run below, old algorithm included. Confirmed reliable on this C13/GD32F303
+hardware; F401 boards are untested (see the throttle comment in `dwin_lcd.cpp`).
 
-## Results Summary
+This supersedes all previous numbers in this file. Earlier results used a different (looser)
+per-frame throttle and a different, smaller set of thumbnails, and are not comparable to the
+numbers below.
 
-### Dataset Overview
+## What's being compared
 
-| Image | Fill | Colors | Runs | Switches/run | Naive frames | Bucket frames | Speedup |
-|---|---|---|---|---|---|---|---|
-| **thumbnail_1** (smooth shading) | 22.4% | 69 | 1,483 | 99.73% | 4,130 | 1,552 | **2.64×** |
-| **thumbnail_2** (smooth shading) | 20.7% | 69 | 1,212 | 99.67% | 3,810 | 1,281 | **2.94×** |
-| **thumbnail_3** (faceted model) | 34.0% | 10 | 1,365 | 98.46% | 6,268 | 1,375 | **4.46×** |
-| **thumbnail_4** (minimal flat color) | 19.4% | 8 | 580 | 97.76% | 3,584 | 588 | **5.99×** |
-| **thumbnail_5** (minimal flat color) | 17.1% | 8 | 635 | 97.80% | 3,146 | 643 | **4.90×** |
-| **Average** | — | — | — | — | — | — | **4.19×** |
+Two independent variables, tested in combination:
 
-### Detailed Results by Image
+- **Algorithm**: `naive` (the original `DWIN_RenderThumb` -- one `DWIN_Set_Color` +
+  one 1x1 `DWIN_Fill_Rect_Raw` per foreground pixel, in raster order) vs. `bucketed` (the
+  algorithm in this branch -- row-RLE, vertical run merging across rows, emission bucketed by
+  color so each palette is sent once).
+- **Slicer post-processing**: `full` (thumbnail embedded by the *previous* version of
+  `SlicerScripts/orca_parser.py`, no color quantization) vs. `q32` (embedded by the *current*
+  version, median-cut quantized to <=32 colors, background-masked).
 
-#### Smooth-shaded models (69 distinct colors, ~99.7% switches/run)
+Both variables act on the same 9 real G-code files (`test_1`..`test_9`, one renamed `test_5m`),
+each re-sliced twice to produce a `_full` and a `_q32` variant -- 18 source files, each rendered
+with both algorithms, so **36 real-hardware renders** in total.
 
-**thumbnail_1_thumb.png:** 22.4% fill, 9,216 px
-- Naive: 4,130 frames, 13.75s
-- Bucket-sort: 1,552 frames, 5.20s → **2.64× speedup**
-- Analysis: Smooth per-vertex shading produces nearly one color change per RLE run. Bucket-sort reduces palette sets from 1,483 down to 69 (one per distinct color).
+Command lists were generated directly from each file's `E3V3SE_THUMB_RAW16` block (the actual
+pixel data the firmware parses), not from the slicer's separate cosmetic base64 PNG preview
+comment -- the latter is unaffected by `orca_parser.py`'s quantization and is identical between
+`_full`/`_q32` pairs, which would have silently defeated this comparison.
 
-**thumbnail_2_thumb.png:** 20.7% fill, 9,216 px
-- Naive: 3,810 frames, 12.60s
-- Bucket-sort: 1,281 frames, 4.29s → **2.94× speedup**
-- Analysis: Similar smooth shading. Bucket-sort sends palette only 69 times instead of ~1,200 times.
+## Results
 
-#### Faceted models (8–10 colors, ~98% switches/run)
+| File | Algorithm | Commands | Palette sets | Fills | Time |
+|---|---|---:|---:|---:|---:|
+| test_1_full | naive | 3814 | 1907 | 1907 | 9.73s |
+| test_1_full | bucketed | 1030 | 58 | 972 | 2.75s |
+| test_1_q32 | naive | 3814 | 1907 | 1907 | 9.61s |
+| test_1_q32 | bucketed | 992 | 26 | 966 | 2.66s |
+| test_2_full | naive | 4446 | 2223 | 2223 | 11.14s |
+| test_2_full | bucketed | 1226 | 54 | 1172 | 3.18s |
+| test_2_q32 | naive | 4434 | 2217 | 2217 | 11.16s |
+| test_2_q32 | bucketed | 1162 | 15 | 1147 | 3.07s |
+| test_3_full | naive | 6346 | 3173 | 3173 | 16.12s |
+| test_3_full | bucketed | 1865 | 115 | 1750 | 5.02s |
+| test_3_q32 | naive | 6346 | 3173 | 3173 | 15.89s |
+| test_3_q32 | bucketed | 1764 | 59 | 1705 | 4.66s |
+| test_4_full | naive | 3760 | 1880 | 1880 | 9.51s |
+| test_4_full | bucketed | 1018 | 42 | 976 | 2.69s |
+| test_4_q32 | naive | 3792 | 1896 | 1896 | 9.55s |
+| test_4_q32 | bucketed | 937 | 17 | 920 | 2.50s |
+| test_5m_full | naive | 4020 | 2010 | 2010 | 10.08s |
+| test_5m_full | bucketed | 908 | 51 | 857 | 2.40s |
+| test_5m_q32 | naive | 3992 | 1996 | 1996 | 10.15s |
+| test_5m_q32 | bucketed | 791 | 19 | 772 | 2.05s |
+| test_6_full | naive | 4078 | 2039 | 2039 | 10.17s |
+| test_6_full | bucketed | 1169 | 34 | 1135 | 3.07s |
+| test_6_q32 | naive | 4126 | 2063 | 2063 | 10.44s |
+| test_6_q32 | bucketed | 1118 | 15 | 1103 | 3.05s |
+| test_7_full | naive | 4084 | 2042 | 2042 | 10.38s |
+| test_7_full | bucketed | 1292 | 69 | 1223 | 3.44s |
+| test_7_q32 | naive | 4072 | 2036 | 2036 | 10.25s |
+| test_7_q32 | bucketed | 1169 | 23 | 1146 | 3.11s |
+| test_8_full | naive | 3904 | 1952 | 1952 | 9.69s |
+| test_8_full | bucketed | 1474 | 73 | 1401 | 3.96s |
+| test_8_q32 | naive | 3904 | 1952 | 1952 | 9.82s |
+| test_8_q32 | bucketed | 1353 | 25 | 1328 | 3.62s |
+| test_9_full | naive | 4546 | 2273 | 2273 | 11.46s |
+| test_9_full | bucketed | 1681 | 121 | 1560 | 4.46s |
+| test_9_q32 | naive | 4538 | 2269 | 2269 | 11.49s |
+| test_9_q32 | bucketed | 1429 | 27 | 1402 | 3.64s |
 
-**thumbnail_3_thumb.png:** 34.0% fill, 9,216 px (regenerated from user source)
-- Naive: 6,268 frames, 20.84s
-- Bucket-sort: 1,375 frames, 4.67s → **4.46× speedup**
-- Analysis: More filled model (34% vs 20%), but only 10 colors. More palette reuse across the image → larger bucket-sort win.
+All 36 renders completed with no visible corruption and no watchdog resets under the
+`batch:10:16` throttle -- including the naive algorithm, which the previous firmware never ran
+at this throttle value (it used its own, looser, per-pixel-counted delay).
 
-**thumbnail_4_thumb.png:** 19.4% fill, 9,216 px
-- Naive: 3,584 frames, 11.87s
-- Bucket-sort: 588 frames, 1.98s → **5.99× speedup**
-- Analysis: Minimal color palette (8 colors), sparse model. Extreme bucket-sort win because palette is sent only 8 times total.
+## Speedups
 
-**thumbnail_5_thumb.png:** 17.1% fill, 9,216 px
-- Naive: 3,146 frames, 10.53s
-- Bucket-sort: 643 frames, 2.15s → **4.90× speedup**
-- Analysis: Similar to #4 (8 colors, sparse), confirms consistent ~5× speedup for minimal palettes.
+### Algorithm alone (naive -> bucketed), same input file
 
-## Comparative Analysis
+| Pair | Naive | Bucketed | Speedup |
+|---|---:|---:|---:|
+| test_1_full | 9.73s | 2.75s | 3.54x |
+| test_1_q32 | 9.61s | 2.66s | 3.61x |
+| test_2_full | 11.14s | 3.18s | 3.50x |
+| test_2_q32 | 11.16s | 3.07s | 3.64x |
+| test_3_full | 16.12s | 5.02s | 3.21x |
+| test_3_q32 | 15.89s | 4.66s | 3.41x |
+| test_4_full | 9.51s | 2.69s | 3.54x |
+| test_4_q32 | 9.55s | 2.50s | 3.82x |
+| test_5m_full | 10.08s | 2.40s | 4.20x |
+| test_5m_q32 | 10.15s | 2.05s | 4.95x |
+| test_6_full | 10.17s | 3.07s | 3.31x |
+| test_6_q32 | 10.44s | 3.05s | 3.42x |
+| test_7_full | 10.38s | 3.44s | 3.02x |
+| test_7_q32 | 10.25s | 3.11s | 3.30x |
+| test_8_full | 9.69s | 3.96s | 2.45x |
+| test_8_q32 | 9.82s | 3.62s | 2.71x |
+| test_9_full | 11.46s | 4.46s | 2.57x |
+| test_9_q32 | 11.49s | 3.64s | 3.16x |
+| **Average** | | | **3.41x** |
 
-| Algorithm      | Avg speedup | Frame reduction | Applies to |
-|---|---|---|---|
-| **Naive**      | 1.00×       | baseline        | Per-pixel `0x40` set-palette + `0x5B` rect = 2 frames/px |
-| **RLE**        | 1.47×       | 32% avg         | Smooth models: collapses pixel runs, still palette-heavy (1 per run) |
-| **Bucket-sort**| **4.19×**   | **76% avg**     | All models: groups runs by color; palette sent only #colors times |
+Average is 3.26x on `_full` inputs and 3.56x on `_q32` inputs -- the bucketed algorithm benefits
+from quantized input too (fewer distinct colors means fewer, larger buckets), but it delivers a
+solid 2.4-4.2x even on unquantized `_full` thumbnails with 34-121 colors, because vertical run
+merging and RLE reduce the *fill* count regardless of color count.
 
-## Wall Time Analysis
+### Quantization alone (bucketed algorithm, full input -> q32 input)
 
-**Observed:** Wall times scale linearly with frame count (not wire-bound).
-- Naive: 3,146–6,268 frames × ~3.36ms/frame ≈ 10.6–21.0s  
-- Bucket-sort: 588–1,552 frames × ~3.42ms/frame ≈ 2.0–5.3s  
+| Model | Bucketed on full | Bucketed on q32 | Gain |
+|---|---:|---:|---:|
+| test_1 | 2.75s | 2.66s | 1.03x |
+| test_2 | 3.18s | 3.07s | 1.04x |
+| test_3 | 5.02s | 4.66s | 1.08x |
+| test_4 | 2.69s | 2.50s | 1.08x |
+| test_5m | 2.40s | 2.05s | 1.17x |
+| test_6 | 3.07s | 3.05s | 1.01x |
+| test_7 | 3.44s | 3.11s | 1.11x |
+| test_8 | 3.96s | 3.62s | 1.09x |
+| test_9 | 4.46s | 3.64s | 1.23x |
+| **Average** | | | **1.09x** |
 
-The consistent ~3.4ms/frame (slightly higher than the 3ms throttle) accounts for serial transmission time (~24 bytes per frame at 115200 baud = ~2.1ms) + panel processing overhead.
+Isolated from the algorithm change, quantization alone is a modest ~9% win on top of the
+bucketed algorithm -- palette sets are already down to double digits after bucketing even on
+`_full` input, so there's less headroom left for quantization to reclaim there. This does **not**
+mean quantization is unimportant: see the end-to-end numbers below, and note `_full` palette-set
+counts (34-121) are themselves the *result* of `SLIC3R`/`OrcaSlicer`'s `LANCZOS` resize
+manufacturing spurious near-duplicate colors that the bucketing algorithm still has to treat as
+distinct -- quantization's real payoff is realized jointly with bucketing, not independently of it.
 
-**Speedup scales with palette reduction, not just frame count:**
-- Smooth-shaded models (69 colors): 2.6–2.9× speedup (palette sent 1,200+ → 69 times)
-- Faceted models (8–10 colors): 4.5–6.0× speedup (palette sent 600+ → 8 times)
+### End-to-end (old script + old algorithm -> new script + new algorithm)
 
-## Design Validation
+The number that matters for a user upgrading both the slicer post-processing script and the
+firmware together:
 
-1. ✅ **Panel is not wire-bound at 115200 baud.** Reducing frame count by 76% directly reduced wall time by 76%, with no buffering or queueing artifacts. The panel processes drawing commands in real time, keeping up with the serial stream.
+| Model | Old (naive, full) | New (bucketed, q32) | Speedup |
+|---|---:|---:|---:|
+| test_1 | 9.73s | 2.66s | 3.66x |
+| test_2 | 11.14s | 3.07s | 3.63x |
+| test_3 | 16.12s | 4.66s | 3.46x |
+| test_4 | 9.51s | 2.50s | 3.80x |
+| test_5m | 10.08s | 2.05s | 4.92x |
+| test_6 | 10.17s | 3.05s | 3.33x |
+| test_7 | 10.38s | 3.11s | 3.34x |
+| test_8 | 9.69s | 3.62s | 2.68x |
+| test_9 | 11.46s | 3.64s | 3.15x |
+| **Average** | | | **3.55x** |
 
-2. ✅ **Palette switching is the dominant bottleneck.** Confirmed across 5 real thumbnails with different color palettes:
-   - Smooth 69-color models: palette on 99%+ of runs → 2.6–2.9× bucket-sort win
-   - Faceted 8-color models: palette on ~98% of runs → 5–6× bucket-sort win
-   - RLE alone (28–37% reduction) consistently underperforms bucket-sort by nearly 2–3×, proving the cost is one palette-set per run, not pixel count or rect throughput.
+## Interpretation
 
-3. ✅ **3ms/frame is a safe, conservative delay.** Used after the overrun incident (unthrottled ~2000-command flood wedged the panel). This delay was not bisected; tighter timing may be possible but 3ms is proven safe and reliable on all 5 real images with zero corruption.
+- The **bucketed rendering algorithm is the dominant contributor** (~3.4x on its own), and it
+  helps regardless of whether the embedded thumbnail was quantized -- run merging and RLE reduce
+  fill-command count independent of color count.
+- **Quantization's contribution measured in isolation is smaller than expected from earlier
+  (unvalidated) estimates** -- about 9% on top of an already-bucketed render, not the dominant
+  lever previously claimed in this document. It still matters: it reduces `_full`'s 34-121
+  spurious colors down to <=32 real ones, which is why `_q32` bucketed runs consistently beat
+  `_full` bucketed runs, and it costs nothing to keep (no MCU-side cost, pure slicer-side
+  preprocessing).
+- Combined, upgrading both the slicer script and the firmware turns an 8-20s block into
+  2.0-5.0s -- solidly inside the sub-10s target for One Click Print.
 
-4. ✅ **Real thumbnail speedup matches the model predictions perfectly.** Frame-count reduction and wall-time reduction stay within 1% of each other, confirming that panel processing time (not transmission time) is the real constraint.
+## Reproducing
 
-## Implications for Phase 3
+```sh
+# Rebuild the host-side tools from this branch's dwin_wire.h
+g++ -O2 -std=c++17 -o dwin_replay dwin_replay.cpp
+g++ -O2 -std=c++17 -o dwin_stress dwin_stress.cpp
 
-**Decision: Port bucket-sort into Marlin, not plain RLE.**
+# Generate command lists directly from a file's RAW16 block (not the
+# cosmetic base64 preview -- see thumb_raw16.py)
+python3 - <<'PYEOF'
+import sys; sys.path.insert(0, ".")
+from thumb_raw16 import load_thumb_raw16
+import dump_thumb_commands as dtc
+img = load_thumb_raw16("test_1_full.gcode")
+# naive: dtc.simulate_naive(img)   bucketed: dtc.simulate(img)
+PYEOF
 
-Bucket-sort costs ~6 KB RAM on a 96×96 image (holding the full run list before rendering). **Correction:** the actual target is `BOARD_CREALITY_V3_GD303` / env `STM32F103RET6_creality` (a GD32F303RET6, 512KB flash / **64KB SRAM** — not an STM32F401 with 256KB SRAM as originally stated here). A real firmware build (see Phase 3 implementation, `dwin_lcd.cpp`) measured 20,600/65,536 bytes (31.4%) used before the run buffer, and 30,200/65,536 (46.1%) after adding a 1536-run static buffer (9.6KB) — comfortably within budget, but the buffer must be sized from a real build's numbers on this part, not assumed headroom.
-
-The 4.2× speedup reduction in rendering time translates directly to a proportional reduction in how much print time is spent on UI updates — a real win for throughput, especially on faster printers.
-
-**Algorithm for Phase 3:**
-1. Decode the thumbnail image line-by-line (unchanged).
-2. Collect all runs (x0, x1, y) into color buckets as they're generated (new).
-3. Render each bucket (one palette set via `0x40`, then all its runs via `0x5B`) instead of row-by-row (new).
-4. Keep the existing `color == 0` (transparent-black) skip (unchanged).
-5. Apply 3ms/frame throttle in the DWIN frame-send helper, not per-call (new; matches Phase 1 finding).
-6. Use a quantized palette during thumbnail decode if needed to keep distinct-color count under ~32 (optional optimization).
-
-## Files
-
-- `tjc_dwin.py` — DWIN protocol client with per-frame throttling
-- `dwin_blit.py` — Image encoders: naive, RLE, bucket-sort  
-- `dwin_bench.py` — Hardware benchmark harness (top/bottom split, on-device timing)
-- `thumb_raw16.py` — Decoder for Marlin's `E3V3SE_THUMB_RAW16` G-code format
-- `BENCHMARK_RESULTS.md` — Complete analysis across 5 real thumbnails
-- `thumbnail_[1-5]_thumb.png` — Extracted real test images (2 smooth-shaded, 3 faceted models)
-
-**Verification:**
-- All 5 thumbnails rendered cleanly with zero corruption at 3ms/frame
-- All 21 existing firmware-building tests still pass
-- Frame-count reduction matches wall-time reduction within 1%, confirming model prediction accuracy
+# Replay against the panel with the committed throttle
+./dwin_replay --port /dev/ttyUSB0 --file <commands.txt> \
+    --batch-size 10 --batch-delay-ms 16 --clear
+```
