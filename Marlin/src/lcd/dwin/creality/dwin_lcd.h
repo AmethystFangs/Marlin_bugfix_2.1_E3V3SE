@@ -155,6 +155,11 @@ inline void DWIN_Draw_VLine(uint16_t color, uint16_t xStart, uint16_t yStart, ui
 void DWIN_Draw_Rectangle(uint8_t mode, uint16_t color,
                          uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd);
 
+// Fill a rectangle using whatever color was last set via DWIN_Set_Color,
+// with no palette command of its own. Lets a caller batch many same-color
+// fills behind a single DWIN_Set_Color call.
+void DWIN_Fill_Rect_Raw(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd);
+
 void DWIN_Set_Color(uint16_t FC,uint16_t BC);
 void  DWIN_Set_24_Color(uint32_t BC);
 // Draw a box
